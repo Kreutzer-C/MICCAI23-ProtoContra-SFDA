@@ -1,7 +1,7 @@
 # Experiment Specific
 experiment_name: 'UNet_Abdomen_CT_Seg'
-data_root: '/mnt/sda/qinji/Domain_Adaptation/data/Abdomen_Data/'
-save_root: '/mnt/sda/qinji/Proto_Contra_SFDA_results/Source_Seg'
+data_root: '/opt/data/private/MICCAI23-ProtoContra-SFDA/datasets/chaos'
+save_root: '/opt/data/private/MICCAI23-ProtoContra-SFDA/results/Source_Seg'
 source_sites:
 - 'CT'
 resume_dir: ''
