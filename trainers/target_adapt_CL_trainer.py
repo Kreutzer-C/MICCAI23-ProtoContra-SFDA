@@ -52,8 +52,9 @@ class CL_Trainer():
         self.model = get_model(self.opt)
         self.teacher_model = get_model(self.opt)
         checkpoint = torch.load(self.opt['source_model_path'],map_location='cpu')
-        self.model.load_state_dict(checkpoint)
-        self.teacher_model.load_state_dict(checkpoint)
+        state_dict = checkpoint['model'] if 'model' in checkpoint else checkpoint
+        self.model.load_state_dict(state_dict)
+        self.teacher_model.load_state_dict(state_dict)
         self.model = self.model.to(self.opt['gpu_id'])
         self.teacher_model = self.teacher_model.to(self.opt['gpu_id'])
         self.source_prototypes = self.model.outc.conv.weight.view((self.opt['num_classes']*self.opt['num_prototypes'],self.opt['output_dim']))
