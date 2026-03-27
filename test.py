@@ -113,8 +113,8 @@ def compute_metrics(pred_volumes, gt_volumes, num_classes, organ_list):
             assd_list = MultiASD(pred, gt, num_classes, include_bg=False)
             for c, a in enumerate(assd_list):
                 all_assd[idx, c] = a
-        except Exception:
-            pass
+        except Exception as e:
+            print(f'  [ASSD warning] patient {idx}: {e}')
 
     results = {}
     print('\n' + '=' * 60)

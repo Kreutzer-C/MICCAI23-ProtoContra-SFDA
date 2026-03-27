@@ -1,7 +1,7 @@
-cd /opt/data/private/MICCAI23-ProtoContra-SFDA
+cd /workspace/MICCAI23-ProtoContra-SFDA
 
 python3 test.py \
-    --model_path '/opt/data/private/MICCAI23-ProtoContra-SFDA/results/Target_Adapt/UNet_Abdomen_CT2MR_Adapt_CL/exp_2_time_2026-03-26 13:06:48/saved_models/model_step_20_dice_0.8495.pth' \
+    --model_path '/workspace/MICCAI23-ProtoContra-SFDA/results/Target_Adapt/UNet_Abdomen_MR2CT_Adapt_CL/exp_1_time_2026-03-27 08:19:40/saved_models/best_model_step_410_dice_0.7130.pth' \
     --data_root datasets/chaos \
-    --target_site MR \
+    --target_site CT \
     --gpu_id 0

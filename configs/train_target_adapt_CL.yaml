@@ -1,10 +1,10 @@
 # Experiment Specific
-experiment_name: 'UNet_Abdomen_CT2MR_Adapt_CL'
-data_root: '/opt/data/private/MICCAI23-ProtoContra-SFDA/datasets/chaos'
-save_root: '/opt/data/private/MICCAI23-ProtoContra-SFDA/results/Target_Adapt/'
-source_model_path: '/opt/data/private/MICCAI23-ProtoContra-SFDA/results/Target_Adapt/UNet_Abdomen_CT2MR_Adapt_PFA/exp_2_time_2026-03-26 11:38:17/saved_models/model_step_50_dice_0.8726.pth'
+experiment_name: 'UNet_Abdomen_MR2CT_Adapt_CL'
+data_root: '/workspace/MICCAI23-ProtoContra-SFDA/datasets/chaos'
+save_root: '/workspace/MICCAI23-ProtoContra-SFDA/results/Target_Adapt/'
+source_model_path: '/workspace/MICCAI23-ProtoContra-SFDA/results/Target_Adapt/UNet_Abdomen_MR2CT_Adapt_PFA/exp_1_time_2026-03-27 07:37:42/saved_models/best_model_step_5_dice_0.7106.pth'
 target_sites:
-- 'MR'
+- 'CT'
 resume_dir: ''
 continue_train: False
 total_epochs: 5

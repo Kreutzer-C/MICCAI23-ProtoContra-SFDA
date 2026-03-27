@@ -62,7 +62,11 @@ if __name__ == '__main__':
     ensure_dirs(opt)
     # trainer = PseudoLabel_Trainer(opt)
     # First PFA stage
-    trainer = PFA_Trainer(opt)
+    if 'PFA' in opt['config_file']:
+        print("Training PFA stage")
+        trainer = PFA_Trainer(opt)
     # Then CL stage
-    # trainer = CL_Trainer(opt)
+    if 'CL' in opt['config_file']:
+        print("Training CL stage")
+        trainer = CL_Trainer(opt)
     trainer.launch()
