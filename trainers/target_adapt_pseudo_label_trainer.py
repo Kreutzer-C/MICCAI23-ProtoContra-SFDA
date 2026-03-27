@@ -50,14 +50,15 @@ class PseudoLabel_Trainer():
         ## initialize the models
         self.use_ema = self.opt['use_ema']
         checkpoint = torch.load(self.opt['source_model_path'],map_location='cpu')
+        state_dict = checkpoint['model'] if 'model' in checkpoint else checkpoint
 
         self.model = get_model(self.opt)
-        self.model.load_state_dict(checkpoint)
+        self.model.load_state_dict(state_dict)
         self.model = self.model.to(self.opt['gpu_id'])
         
         if self.use_ema:
             self.ema_model = get_model(self.opt)
-            self.ema_model.load_state_dict(checkpoint)
+            self.ema_model.load_state_dict(state_dict)
             self.ema_model = self.ema_model.to(self.opt['gpu_id'])
             self.ema_model.eval()
         

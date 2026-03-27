@@ -43,7 +43,7 @@ beta: 0.001
 s_par: 0.5
 
 # display
-save_steps: 100
+save_steps: 10
 eval_steps: 5
 display_steps: 40
 save_visuals: True
