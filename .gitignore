@@ -2,3 +2,4 @@ __pycache__/
 datasets/
 results/
 configs/
+test_script.sh
