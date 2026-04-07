@@ -7,6 +7,13 @@ Usage:
         --data_root datasets/chaos \
         --target_site MR \
         --gpu_id 0
+
+    # with prediction overlay PNGs:
+    python3 test.py \
+        --model_path ... \
+        --data_root datasets/chaos \
+        --target_site MR \
+        --save_vis --vis_dir ./vis_results
 """
 
 import argparse
@@ -16,6 +23,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import cv2
 
 from models import get_model
 from dataloaders import MyDataset
@@ -27,6 +35,47 @@ from utils.metrics import MultiDiceScore, MultiASD
 # Note: the yaml organ_list has Liver/Spleen swapped (a labeling bug, not affecting metric values)
 ORGAN_LIST = ['Liver', 'R.Kidney', 'L.Kidney', 'Spleen']
 NUM_CLASSES = 5
+
+# ── Visualisation colour palette ─────────────────────────────────────────────
+# HEX colours per class index; index 0 = background (skipped).
+LABEL_COLORS_HEX = [
+    None,        # 0: background — not drawn
+    "#80AE80",   # 1: Liver        — green
+    "#F1D691",   # 2: Right Kidney — yellow
+    "#B17A65",   # 3: Left Kidney  — brown-red
+    "#6FB8D2",   # 4: Spleen       — blue
+]
+LABEL_ALPHA       = 0.35   # fill transparency
+CONTOUR_THICKNESS = 1      # contour line width (px)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _hex_to_bgr(hex_color):
+    h = hex_color.lstrip('#')
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return (b, g, r)
+
+
+def overlay_labels(bgr, label):
+    """Blend semi-transparent colour fill + thin contour per class."""
+    result = bgr.copy().astype(np.float32)
+    for cls_idx, hex_color in enumerate(LABEL_COLORS_HEX):
+        if hex_color is None:
+            continue
+        mask = (label == cls_idx).astype(np.uint8)
+        if mask.sum() == 0:
+            continue
+        bgr_color = _hex_to_bgr(hex_color)
+        color_layer = np.zeros_like(result)
+        color_layer[mask == 1] = bgr_color
+        result = np.where(
+            mask[:, :, None] == 1,
+            result * (1 - LABEL_ALPHA) + color_layer * LABEL_ALPHA,
+            result,
+        )
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(result, contours, -1, bgr_color, CONTOUR_THICKNESS, cv2.LINE_AA)
+    return result.clip(0, 255).astype(np.uint8)
 
 
 def parse_args():
@@ -44,6 +93,10 @@ def parse_args():
     parser.add_argument('--num_classes', type=int, default=NUM_CLASSES)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--save_vis', action='store_true',
+                        help='Save per-slice prediction overlay PNGs')
+    parser.add_argument('--vis_dir', type=str, default='./vis_results',
+                        help='Output directory for prediction overlay PNGs')
     return parser.parse_args()
 
 
@@ -63,8 +116,8 @@ def build_model(args, device):
     return model
 
 
-def collect_predictions(model, dataloader, device):
-    """Run inference and group slice predictions by patient."""
+def collect_predictions(model, dataloader, device, save_vis=False):
+    """Run inference and group slice predictions (and images) by patient."""
     sample_dict = {}
     with torch.no_grad():
         for images, segs, names in tqdm(dataloader, desc='Inference'):
@@ -74,7 +127,8 @@ def collect_predictions(model, dataloader, device):
                 parts = name.split('_')
                 patient_id = parts[0]
                 slice_idx = int(parts[1])
-                entry = (predicts[i].cpu(), segs[i].cpu(), slice_idx)
+                img_cpu = images[i].cpu() if save_vis else None
+                entry = (predicts[i].cpu(), segs[i].cpu(), slice_idx, img_cpu)
                 sample_dict.setdefault(patient_id, []).append(entry)
     return sample_dict
 
@@ -85,7 +139,7 @@ def build_volumes(sample_dict):
     for patient_id in sorted(sample_dict.keys()):
         slices = sorted(sample_dict[patient_id], key=lambda x: x[2])
         preds, targets = [], []
-        for pred, target, _ in slices:
+        for pred, target, _, _img in slices:
             if target.sum() == 0:
                 continue
             preds.append(pred)
@@ -95,6 +149,37 @@ def build_volumes(sample_dict):
         pred_volumes.append(torch.stack(preds, dim=-1))    # (C, H, W, D)
         gt_volumes.append(torch.stack(targets, dim=-1))    # (H, W, D)
     return pred_volumes, gt_volumes
+
+
+def save_vis_slices(sample_dict, target_site, vis_dir):
+    """Save per-slice prediction overlay PNGs for all patients.
+
+    Output: {vis_dir}/{target_site}_{patient_id}/slice_{idx:04d}_pred.png
+    Images are horizontally flipped (left-right) before saving.
+    """
+    for patient_id in sorted(sample_dict.keys()):
+        slices = sorted(sample_dict[patient_id], key=lambda x: x[2])
+        case_dir = os.path.join(vis_dir, f"{target_site}_{patient_id}")
+        os.makedirs(case_dir, exist_ok=True)
+
+        for pred, _gt, slice_idx, img_cpu in slices:
+            # Use middle channel of 3-channel input as grayscale base
+            img_np = img_cpu.numpy()                              # (C, H, W)
+            mid = img_np.shape[0] // 2
+            gray = img_np[mid]                                    # (H, W)
+            lo, hi = gray.min(), gray.max()
+            gray = (gray - lo) / (hi - lo + 1e-8)
+            img_u8 = (gray * 255).clip(0, 255).astype(np.uint8)
+            bgr = cv2.cvtColor(img_u8, cv2.COLOR_GRAY2BGR)
+
+            pred_label = pred.argmax(dim=0).numpy().astype(np.int32)  # (H, W)
+            bgr = overlay_labels(bgr, pred_label)
+            bgr = cv2.flip(bgr, 1)
+
+            fname = f"slice_{slice_idx:04d}_pred.png"
+            cv2.imwrite(os.path.join(case_dir, fname), bgr)
+
+        print(f"  Vis saved -> {case_dir}  ({len(slices)} slices)")
 
 
 def compute_metrics(pred_volumes, gt_volumes, num_classes, organ_list):
@@ -158,12 +243,16 @@ def main():
     )
 
     model = build_model(args, device)
-    sample_dict = collect_predictions(model, dataloader, device)
+    sample_dict = collect_predictions(model, dataloader, device, save_vis=args.save_vis)
     pred_volumes, gt_volumes = build_volumes(sample_dict)
     print(f'Total patients evaluated: {len(pred_volumes)}')
 
     organ_list = ORGAN_LIST[:args.num_classes - 1]
     compute_metrics(pred_volumes, gt_volumes, args.num_classes, organ_list)
+
+    if args.save_vis:
+        print(f'\nSaving prediction overlays -> {args.vis_dir}')
+        save_vis_slices(sample_dict, args.target_site, args.vis_dir)
 
 
 if __name__ == '__main__':
