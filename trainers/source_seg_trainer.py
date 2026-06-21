@@ -2,7 +2,7 @@ import torch
 import os,random
 from models import get_model
 
-from dataloaders import MyDataset
+from dataloaders import MyDataset, ProstateDataset
 from torch.utils.data import DataLoader
 from losses import MultiClassDiceLoss,PixelPrototypeCELoss
 
@@ -14,6 +14,21 @@ from tqdm import tqdm
 import pdb
 
 
+def _parse_sample_name(name):
+    """Parse sample name into (patient_id, slice_index).
+    Supports both CHAOS format (patient_sliceindex) and
+    PROSTATE format (vol_Site_CaseXX_slice_XXXX).
+    """
+    if "_slice_" in name:
+        parts = name.split("_slice_")
+        case_name = parts[0].replace("vol_", "", 1)
+        slice_idx = int(parts[1])
+        return case_name, slice_idx
+    else:
+        parts = name.split("_")
+        return parts[0], int(parts[1])
+
+
 class SourceDomainTrainer():
     def __init__(self, opt):
         self.opt = opt
@@ -21,8 +36,29 @@ class SourceDomainTrainer():
     def initialize(self):
 
         ### initialize dataloaders
+        if self.opt.get('dataset') == 'PROSTATE':
+            train_dataset = ProstateDataset(
+                self.opt['data_root'], self.opt['source_domain'],
+                phase='train', split_train=True,
+                img_size=self.opt['img_size']
+            )
+            val_dataset = ProstateDataset(
+                self.opt['data_root'], self.opt['source_domain'],
+                phase='val', split_train=False,
+                img_size=self.opt['img_size']
+            )
+        else:
+            train_dataset = MyDataset(
+                self.opt['data_root'], self.opt['source_sites'],
+                phase='train', split_train=True
+            )
+            val_dataset = MyDataset(
+                self.opt['data_root'], self.opt['source_sites'],
+                phase='val', split_train=False
+            )
+
         self.train_dataloader = DataLoader(
-            MyDataset(self.opt['data_root'], self.opt['source_sites'], phase='train', split_train=True),
+            train_dataset,
             batch_size=self.opt['batch_size'],
             shuffle=True,
             drop_last=True,
@@ -32,7 +68,7 @@ class SourceDomainTrainer():
         print('Length of training dataset: ', len(self.train_dataloader))
 
         self.val_dataloader = DataLoader(
-            MyDataset(self.opt['data_root'], self.opt['source_sites'], phase='val', split_train=False),
+            val_dataset,
             batch_size=self.opt['batch_size'],
             shuffle=False,
             drop_last=False,
@@ -212,7 +248,7 @@ class SourceDomainTrainer():
 
                     for i,name in enumerate(val_names):
 
-                        sample_name,index = name.split('_')[0],int(name.split('_')[1])
+                        sample_name, index = _parse_sample_name(name)
                         sample_dict[sample_name] = sample_dict.get(sample_name,[]) + [(predict[i].detach().cpu(),val_segs[i].detach().cpu(),index)]
                         
                 for k, v in val_losses.items():

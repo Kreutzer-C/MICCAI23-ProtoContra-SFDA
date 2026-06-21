@@ -15,6 +15,21 @@ from tqdm import tqdm
 import pdb
 
 
+def _parse_sample_name(name):
+    """Parse sample name into (patient_id, slice_index).
+    Supports both CHAOS format (patient_sliceindex) and
+    PROSTATE format (vol_Site_CaseXX_slice_XXXX).
+    """
+    if "_slice_" in name:
+        parts = name.split("_slice_")
+        case_name = parts[0].replace("vol_", "", 1)
+        slice_idx = int(parts[1])
+        return case_name, slice_idx
+    else:
+        parts = name.split("_")
+        return parts[0], int(parts[1])
+
+
 class PseudoLabel_Trainer():
     def __init__(self, opt):
         self.opt = opt
@@ -254,7 +269,7 @@ class PseudoLabel_Trainer():
                             predict = self.validate_one_step([val_imgs, val_segs])
                             for i,name in enumerate(val_names):
 
-                                sample_name,index = name.split('_')[0],int(name.split('_')[1])
+                                sample_name, index = _parse_sample_name(name)
                                 sample_dict[sample_name] = sample_dict.get(sample_name,[]) + [(predict[i].detach().cpu(),val_segs[i].detach().cpu(),index)]
                             
                         pred_results_list = []

@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import os,random
 from einops import rearrange
 from models import get_model
-from dataloaders import MyDataset,PatientDataset,MyBatchSampler
+from dataloaders import MyDataset,PatientDataset,MyBatchSampler,ProstateDataset,ProstatePatientDataset
 from torch.utils.data import DataLoader
 from losses import ProtoLoss
 
@@ -15,6 +15,21 @@ from tqdm import tqdm
 import pdb
 
 
+def _parse_sample_name(name):
+    """Parse sample name into (patient_id, slice_index).
+    Supports both CHAOS format (patient_sliceindex) and
+    PROSTATE format (vol_Site_CaseXX_slice_XXXX).
+    """
+    if "_slice_" in name:
+        parts = name.split("_slice_")
+        case_name = parts[0].replace("vol_", "", 1)
+        slice_idx = int(parts[1])
+        return case_name, slice_idx
+    else:
+        parts = name.split("_")
+        return parts[0], int(parts[1])
+
+
 class PFA_Trainer():
     def __init__(self, opt):
         self.opt = opt
@@ -22,23 +37,51 @@ class PFA_Trainer():
     def initialize(self):
 
         ### initialize dataloaders
-        if self.opt['patient_level_dataloader']:
-            train_dataset = PatientDataset(self.opt['data_root'], self.opt['target_sites'], phase='train', split_train=True)
-            patient_sampler = MyBatchSampler(train_dataset,self.opt['batch_size'])
-            self.train_dataloader = DataLoader(train_dataset,batch_sampler=patient_sampler,num_workers=self.opt['num_workers'])
-        else:
-            self.train_dataloader = DataLoader(
-                MyDataset(self.opt['data_root'], self.opt['target_sites'], phase='train', split_train=True),
-                batch_size=self.opt['batch_size'],
-                shuffle=True,
-                drop_last=True,
-                num_workers=self.opt['num_workers']
+        is_prostate = self.opt.get('dataset') == 'PROSTATE'
+        if is_prostate:
+            target_domain = self.opt['target_domain']
+            if self.opt['patient_level_dataloader']:
+                train_dataset = ProstatePatientDataset(
+                    self.opt['data_root'], target_domain,
+                    phase='train', split_train=True,
+                    img_size=self.opt['img_size']
+                )
+                patient_sampler = MyBatchSampler(train_dataset, self.opt['batch_size'])
+                self.train_dataloader = DataLoader(train_dataset, batch_sampler=patient_sampler, num_workers=self.opt['num_workers'])
+            else:
+                self.train_dataloader = DataLoader(
+                    ProstateDataset(
+                        self.opt['data_root'], target_domain,
+                        phase='train', split_train=True,
+                        img_size=self.opt['img_size']
+                    ),
+                    batch_size=self.opt['batch_size'],
+                    shuffle=True, drop_last=True,
+                    num_workers=self.opt['num_workers']
+                )
+            val_dataset = ProstateDataset(
+                self.opt['data_root'], target_domain,
+                phase='val', split_train=False,
+                img_size=self.opt['img_size']
             )
+        else:
+            if self.opt['patient_level_dataloader']:
+                train_dataset = PatientDataset(self.opt['data_root'], self.opt['target_sites'], phase='train', split_train=True)
+                patient_sampler = MyBatchSampler(train_dataset, self.opt['batch_size'])
+                self.train_dataloader = DataLoader(train_dataset, batch_sampler=patient_sampler, num_workers=self.opt['num_workers'])
+            else:
+                self.train_dataloader = DataLoader(
+                    MyDataset(self.opt['data_root'], self.opt['target_sites'], phase='train', split_train=True),
+                    batch_size=self.opt['batch_size'],
+                    shuffle=True, drop_last=True,
+                    num_workers=self.opt['num_workers']
+                )
+            val_dataset = MyDataset(self.opt['data_root'], self.opt['target_sites'], phase='val', split_train=False)
 
         print('Length of training dataset: ', len(self.train_dataloader))
 
         self.val_dataloader = DataLoader(
-            MyDataset(self.opt['data_root'], self.opt['target_sites'], phase='val', split_train=False),
+            val_dataset,
             batch_size=self.opt['batch_size'],
             shuffle=False,
             drop_last=False,
@@ -203,7 +246,7 @@ class PFA_Trainer():
                             predict = self.validate_one_step([val_imgs, val_segs])
                             for i,name in enumerate(val_names):
 
-                                sample_name,index = name.split('_')[0],int(name.split('_')[1])
+                                sample_name, index = _parse_sample_name(name)
                                 sample_dict[sample_name] = sample_dict.get(sample_name,[]) + [(predict[i].detach().cpu(),val_segs[i].detach().cpu(),index)]
                             
                         pred_results_list = []
